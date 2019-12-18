@@ -22,6 +22,8 @@ import os
 import pwd
 import hvac
 import datetime
+import requests
+import json
 
 def print_header():
     user = pwd.getpwuid(os.getuid()).pw_name
@@ -64,23 +66,35 @@ def recurse_for_values(path_prefix, candidate_key):
                     final_value = final_value
                 print (" {0}={1}".format(final_key, repr(final_value)), end='')
 
+def recurse_for_engines(hvac_url, hvac_token):
+    top_vault_prefix_list = []
+    hvac_url = hvac_url + "/v1/sys/mounts"
+    headers = {'X-Vault-Token':hvac_token}
+    res = requests.get(hvac_url, headers = headers).json()
+    for engine in res['data']:
+        if res[engine]['type'] == 'kv':
+            top_vault_prefix_list.append(engine)
+    return top_vault_prefix_list
 
-env_vars = os.environ.copy()
-hvac_token = subprocess.check_output(
-    "vault read -field id auth/token/lookup-self",
-    shell=True,
-    env=env_vars)
 
-hvac_url = os.environ.get('VAULT_ADDR','http://localhost:8200')
-hvac_client = {
-    'url': hvac_url,
-    'token': hvac_token,
-}
-client = hvac.Client(**hvac_client)
-assert client.is_authenticated()
+if __name__ == '__main__':
+    env_vars = os.environ.copy()
+    hvac_token = subprocess.check_output(
+        "vault read -field id auth/token/lookup-self",
+        shell=True,
+        env=env_vars)
 
-top_vault_prefix = os.environ.get('TOP_VAULT_PREFIX','/secret/')
+    hvac_url = os.environ.get('VAULT_ADDR', 'http://localhost:8200')
+    hvac_client = {
+        'url': hvac_url,
+        'token': hvac_token,
+    }
+    client = hvac.Client(**hvac_client)
+    assert client.is_authenticated()
 
-print_header()
-top_level_keys = client.list(top_vault_prefix)
-recurse_for_values(top_vault_prefix, top_level_keys)
+    print_header()
+
+    top_vault_prefix_list = recurse_for_engines(hvac_url, hvac_token)
+    for top_vault_prefix in top_vault_prefix_list:
+        top_level_keys = client.list(top_vault_prefix)
+        recurse_for_values(top_vault_prefix, top_level_keys)
